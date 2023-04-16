@@ -2,7 +2,17 @@
 name = "aviation-calculator"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+description = "Useful calculations for aviators"
+authors = ["Nico Löber <nico@php-perfect.de>"]
+license = "MIT"
+documentation = "https://github.com/php-perfect/aviation-calculator/wiki"
+repository = "https://github.com/php-perfect/aviation-calculator"
+include = [
+    "/Cargo.toml",
+    "/LICENSE",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/src/**",
+]
 
 [dependencies]
