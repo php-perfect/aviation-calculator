@@ -1,3 +1,5 @@
+mod fk9;
+
 use std::f64::consts::PI;
 
 /// # Calculate Ground Speed (GS)

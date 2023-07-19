@@ -15,4 +15,8 @@ include = [
     "/src/**",
 ]
 
-[dependencies]
+[dependencies.enterpolation]
+version = "0.2"
+default-features = false
+# re-enable all wanted features
+features = ["std"]
