@@ -67,6 +67,8 @@ const LEVELS: [&AtmosphericLevel; 4] = [
 /// # Examples
 ///
 /// ```
+/// use aviation_calculator::meteorology::*;
+///
 /// let temp: f64 = icao_temperature_by_elevation(113.7).unwrap();
 /// ```
 pub fn icao_temperature_by_elevation(elevation: f64) -> Result<f64, UndefinedError> {
@@ -104,7 +106,9 @@ pub fn icao_temperature_by_elevation(elevation: f64) -> Result<f64, UndefinedErr
 /// # Examples
 ///
 /// ```
-/// let pressure: f64 = pressure_altitude(1021, 113.7);
+/// use aviation_calculator::meteorology::*;
+///
+/// let pressure: f64 = pressure_altitude(1021.0, 113.7);
 /// ```
 pub fn pressure_altitude(qnh: f64, field_elevation: f64) -> f64 {
     field_elevation

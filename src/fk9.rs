@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::fmt;
 
-use enterpolation::utils::lerp;
 use enterpolation::{DiscreteGenerator, Generator, Sorted, SortedGenerator};
+use enterpolation::utils::lerp;
 
 struct TakeoffDistances {
     mass: Sorted<Vec<f64>>,
@@ -15,6 +15,29 @@ pub enum Engine {
     Rotax912Uls,
 }
 
+///
+///
+/// # Arguments
+///
+/// * `engine`: ROTAX 912 UL or ROTAX 912 ULS
+/// * `mass`: Mass in kg
+/// * `pressure_altitude`: Pressure altitude in ft
+/// * `temperature`: Temperature deviation in °C from default temperature for the given pressure altitude
+/// * `slope`: Slope (positive or negative) in percent
+/// * `wet_surface`: Wet surface
+/// * `soft_surface`: Soft surface
+/// * `high_gras`: Gras higher than 3cm
+///
+/// returns: Result<(f64, f64), TakeoffParameterError> Takeoff run, to 50 ft Height
+///
+/// # Examples
+///
+/// ```
+/// use aviation_calculator::fk9::*;
+/// use aviation_calculator::fk9::Engine::Rotax912Uls;
+///
+/// let distances: (f64, f64) = calculate_start_distance(Rotax912Uls, 525.0, 100.0, 0.8, 0.0, true, false, false).unwrap();
+/// ```
 pub fn calculate_start_distance(
     engine: Engine,
     mass: f64,

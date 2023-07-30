@@ -1,9 +1,7 @@
 use std::f64::consts::PI;
 
-use crate::meterology::pressure_altitude;
-
-mod fk9;
-mod meterology;
+pub mod fk9;
+pub mod meteorology;
 
 const FEET: f64 = 0.3048_f64; /* m */
 
@@ -58,10 +56,6 @@ pub fn calculate_wca(tas: f64, ws: f64, awa: f64) -> f64 {
 /// @return Heading
 pub fn calculate_heading(dc: f64, tas: f64, wd: f64, ws: f64) -> f64 {
     dc + calculate_wca(tas, ws, wd - dc)
-}
-
-pub fn pressure_altitude_feet(qnh: f64, field_elevation: f64) -> f64 {
-    meter_to_feet(pressure_altitude(qnh, feet_to_meter(field_elevation)))
 }
 
 fn meter_to_feet(meter: f64) -> f64 {
@@ -224,36 +218,6 @@ mod tests {
     fn calculate_heading_4() {
         let result = calculate_heading(350.0, 95.0, 190.0, 10.1);
         assert_eq!(result, 347.91614336837915);
-    }
-
-    #[test]
-    fn pressure_altitude_example_1() {
-        let result = pressure_altitude(1021.0, 113.0);
-        assert_eq!(result, 48.70703054690429);
-    }
-
-    #[test]
-    fn pressure_altitude_example_2() {
-        let result = pressure_altitude(1013.25, 113.0);
-        assert_eq!(result, 113.0);
-    }
-
-    #[test]
-    fn pressure_altitude_example_3() {
-        let result = pressure_altitude(1021.0, 113.0);
-        assert_eq!(result, 48.70703054690429);
-    }
-
-    #[test]
-    fn pressure_altitude_example_feet() {
-        let result = pressure_altitude_feet(993.0, 500.0);
-        assert_eq!(result, 1057.3853051050573);
-    }
-
-    #[test]
-    fn pressure_altitude_example_edds() {
-        let result = pressure_altitude_feet(1002.0, 1300.0);
-        assert_eq!(result, 1608.5328114936374);
     }
 
     #[test]
