@@ -1,6 +1,11 @@
-mod fk9;
-
 use std::f64::consts::PI;
+
+use crate::meterology::pressure_altitude;
+
+mod fk9;
+mod meterology;
+
+const FEET: f64 = 0.3048_f64; /* m */
 
 /// # Calculate Ground Speed (GS)
 ///
@@ -20,7 +25,7 @@ pub fn calculate_ground_speed(course: f64, tas: f64, wd: f64, ws: f64) -> f64 {
     let wind_dir = to_radian(normalize_degree(wd));
     let swc = (ws / tas) * (wind_dir - crs).sin();
 
-    return tas * (1.0 - swc.powi(2)).sqrt() - (ws * (wind_dir - crs).cos());
+    tas * (1.0 - swc.powi(2)).sqrt() - (ws * (wind_dir - crs).cos())
 }
 
 /// # Calculate Wind Correction Angle (WCA)
@@ -37,7 +42,7 @@ pub fn calculate_wca(tas: f64, ws: f64, awa: f64) -> f64 {
         return 0.0;
     }
 
-    return to_degree((ws / tas * to_radian(normalize_degree(awa)).sin()).asin());
+    to_degree((ws / tas * to_radian(normalize_degree(awa)).sin()).asin())
 }
 
 /// # Calculate Heading
@@ -52,19 +57,31 @@ pub fn calculate_wca(tas: f64, ws: f64, awa: f64) -> f64 {
 ///
 /// @return Heading
 pub fn calculate_heading(dc: f64, tas: f64, wd: f64, ws: f64) -> f64 {
-    return dc + calculate_wca(tas, ws, wd - dc);
+    dc + calculate_wca(tas, ws, wd - dc)
+}
+
+pub fn pressure_altitude_feet(qnh: f64, field_elevation: f64) -> f64 {
+    meter_to_feet(pressure_altitude(qnh, feet_to_meter(field_elevation)))
+}
+
+fn meter_to_feet(meter: f64) -> f64 {
+    meter / FEET
+}
+
+fn feet_to_meter(meter: f64) -> f64 {
+    meter * FEET
 }
 
 fn to_degree(value: f64) -> f64 {
-    return 180.0 / PI * value;
+    180.0_f64 / PI * value
 }
 
 fn to_radian(value: f64) -> f64 {
-    return PI / 180.0 * value;
+    PI / 180.0_f64 * value
 }
 
 fn normalize_degree(value: f64) -> f64 {
-    return value % 360.0;
+    value % 360.0_f64
 }
 
 #[cfg(test)]
@@ -90,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn calculate_ground_speed_sidewind() {
+    fn calculate_ground_speed_crosswind() {
         let result = calculate_ground_speed(180.0, 100.0, 90.0, 10.0);
         assert_eq!(result, 99.498743710662);
     }
@@ -207,5 +224,59 @@ mod tests {
     fn calculate_heading_4() {
         let result = calculate_heading(350.0, 95.0, 190.0, 10.1);
         assert_eq!(result, 347.91614336837915);
+    }
+
+    #[test]
+    fn pressure_altitude_example_1() {
+        let result = pressure_altitude(1021.0, 113.0);
+        assert_eq!(result, 48.70703054690429);
+    }
+
+    #[test]
+    fn pressure_altitude_example_2() {
+        let result = pressure_altitude(1013.25, 113.0);
+        assert_eq!(result, 113.0);
+    }
+
+    #[test]
+    fn pressure_altitude_example_3() {
+        let result = pressure_altitude(1021.0, 113.0);
+        assert_eq!(result, 48.70703054690429);
+    }
+
+    #[test]
+    fn pressure_altitude_example_feet() {
+        let result = pressure_altitude_feet(993.0, 500.0);
+        assert_eq!(result, 1057.3853051050573);
+    }
+
+    #[test]
+    fn pressure_altitude_example_edds() {
+        let result = pressure_altitude_feet(1002.0, 1300.0);
+        assert_eq!(result, 1608.5328114936374);
+    }
+
+    #[test]
+    fn meter_to_feet_1() {
+        let result = meter_to_feet(1.0);
+        assert_eq!(result, 3.280839895013123);
+    }
+
+    #[test]
+    fn meter_to_feet_5() {
+        let result = meter_to_feet(5.5);
+        assert_eq!(result, 18.04461942257218);
+    }
+
+    #[test]
+    fn feet_to_meter_1() {
+        let result = feet_to_meter(1.0);
+        assert_eq!(result, 0.3048);
+    }
+
+    #[test]
+    fn feet_to_meter_5() {
+        let result = feet_to_meter(5.5);
+        assert_eq!(result, 1.6764000000000001);
     }
 }
