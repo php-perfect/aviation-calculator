@@ -19,7 +19,7 @@ pub enum Engine {
 
 #[derive(Debug, Clone, Copy)]
 pub enum SurfaceCondition {
-    Dry,
+    Inconspicuous,
     Slush,
     Snow,
     PowderSnow,
@@ -27,10 +27,10 @@ pub enum SurfaceCondition {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct GrassSurface {
-    wet: bool,
-    soft_ground: bool,
-    damaged_turf: bool,
-    high_grass: bool,
+    pub wet: bool,
+    pub soft_ground: bool,
+    pub damaged_turf: bool,
+    pub high_grass: bool,
 }
 
 #[derive(Debug, Snafu)]
@@ -68,7 +68,7 @@ pub type TakeoffResult = Result<(f64, f64), TakeoffCalculationError>;
 /// use aviation_calculator::fk9::*;
 /// use aviation_calculator::fk9::Engine::Rotax912Uls;
 ///
-/// let distances: (f64, f64) = calculate_takeoff_distance(Rotax912Uls, 525.0, 100.0, 21.3, 0.0, None, SurfaceCondition::Dry).unwrap();
+/// let distances: (f64, f64) = calculate_takeoff_distance(Rotax912Uls, 525.0, 100.0, 21.3, 0.0, None, SurfaceCondition::Inconspicuous).unwrap();
 /// ```
 pub fn calculate_takeoff_distance(
     engine: Engine,
@@ -156,7 +156,7 @@ fn apply_corrections(
     }
 
     Ok(round(match surface_condition {
-        SurfaceCondition::Dry => takeoff_distance,
+        SurfaceCondition::Inconspicuous => takeoff_distance,
         SurfaceCondition::Slush => takeoff_distance * 1.3,
         SurfaceCondition::Snow => takeoff_distance * 1.5,
         SurfaceCondition::PowderSnow => takeoff_distance * 1.25,
@@ -229,7 +229,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert!(result.is_err());
         assert_eq!("Mass 472 kg is below the minimum available data (472.5 kg)", result.unwrap_err().to_string());
@@ -244,7 +244,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert!(result.is_err());
         assert_eq!("Mass 600.1 kg is above the maximum available data (600 kg)", result.unwrap_err().to_string());
@@ -259,7 +259,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert!(result.is_err());
         assert_eq!("The given pressure altitude is not defined by the ICAO standard atmosphere: The pressure altitude -1524 m is below the minimum defined (-1000 m) in the ICAO Standard Atmosphere", result.unwrap_err().to_string());
@@ -274,7 +274,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (100.0, 225.0));
     }
@@ -288,7 +288,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (100.0, 225.0));
     }
@@ -344,7 +344,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (106.0, 265.0));
     }
@@ -358,7 +358,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (100.0, 225.0));
     }
@@ -372,7 +372,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (147.26, 331.33));
     }
@@ -386,7 +386,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (167.6, 377.1));
     }
@@ -400,7 +400,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (128.0, 320.0));
     }
@@ -414,7 +414,7 @@ mod tests {
             3.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (112.64, 281.6));
     }
@@ -428,7 +428,7 @@ mod tests {
             15.0,
             -2.2,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (99.84, 249.6));
     }
@@ -442,7 +442,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (137.67, 342.67));
     }
@@ -456,7 +456,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface::default()),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (153.0, 375.0));
     }
@@ -470,7 +470,7 @@ mod tests {
             15.0,
             0.0,
             Some(GrassSurface { wet: true, ..GrassSurface::default() }),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (168.3, 412.5));
     }
@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn uls_600_wet_and_soft() {
         let result =
-            calculate_takeoff_distance(Engine::Rotax912Uls, 600.0, 0.0, 15.0, 0.0, Some(GrassSurface { wet: true, soft_ground: true, damaged_turf: false, high_grass: false }), SurfaceCondition::Dry);
+            calculate_takeoff_distance(Engine::Rotax912Uls, 600.0, 0.0, 15.0, 0.0, Some(GrassSurface { wet: true, soft_ground: true, damaged_turf: false, high_grass: false }), SurfaceCondition::Inconspicuous);
         assert_eq!(result.unwrap(), (252.45, 618.75));
     }
 
@@ -491,7 +491,7 @@ mod tests {
             -2.0,
             3.0,
             Some(GrassSurface { wet: true, soft_ground: true, damaged_turf: true, high_grass: true }),
-            SurfaceCondition::Dry,
+            SurfaceCondition::Inconspicuous,
         );
         assert_eq!(result.unwrap(), (485.6, 1190.2));
     }
@@ -515,7 +515,7 @@ mod tests {
 
     #[test]
     fn fsm75_3_example3() {
-        let result = apply_corrections(465.0, 1150.0, 35.0, 0.0, None, SurfaceCondition::Dry);
+        let result = apply_corrections(465.0, 1150.0, 35.0, 0.0, None, SurfaceCondition::Inconspicuous);
         assert_eq!(result.unwrap(), 653.61); // 653
     }
 

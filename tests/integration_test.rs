@@ -4,14 +4,17 @@ use aviation_calculator::utils::{feet_to_meter, meter_to_feet, round};
 
 #[test]
 fn common_takeoff_calculation_zellhausen() {
-    let result: TakeoffResult = calculate_takeoff_distance(Engine::Rotax912Uls, 520.0, 370.73, 21.0, 0.0, Some(GrassSurface::default()), SurfaceCondition::Dry);
+    let result: TakeoffResult = calculate_takeoff_distance(Engine::Rotax912Uls, 520.0, 370.73, 21.0, 0.0, Some(GrassSurface {
+        wet: true,
+        ..GrassSurface::default()
+    }), SurfaceCondition::Inconspicuous);
     let takeoff_distances = result.expect("No error is expected for this takeoff calculation!");
     assert_eq!(takeoff_distances, (138.73, 344.18));
 }
 
 #[test]
 fn common_takeoff_calculation_frankfurt() {
-    let result: TakeoffResult = calculate_takeoff_distance(Engine::Rotax912Uls, 520.0, 364.0, 21.0, 0.0, None, SurfaceCondition::Dry);
+    let result: TakeoffResult = calculate_takeoff_distance(Engine::Rotax912Uls, 520.0, 364.0, 21.0, 0.0, None, SurfaceCondition::Inconspicuous);
     let takeoff_distances = result.expect("No error is expected for this takeoff calculation!");
     assert_eq!(takeoff_distances, (115.52, 286.61));
 }
