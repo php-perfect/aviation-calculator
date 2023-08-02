@@ -9,7 +9,7 @@ fn common_takeoff_calculation_zellhausen() {
         ..GrassSurface::default()
     }), SurfaceCondition::Inconspicuous);
     let takeoff_distances = result.expect("No error is expected for this takeoff calculation!");
-    assert_eq!(takeoff_distances, (138.73, 344.18));
+    assert_eq!(takeoff_distances, (152.6, 378.6));
 }
 
 #[test]
