@@ -1,34 +1,66 @@
-use std::error::Error;
-use std::fmt;
+use enterpolation::{DiscreteGenerator, Generator, Sorted, SortedGenerator, utils::lerp};
+use snafu::prelude::*;
 
-use enterpolation::{DiscreteGenerator, Generator, Sorted, SortedGenerator};
-use enterpolation::utils::lerp;
+use crate::meteorology::{calculate_temperature_deviation, UndefinedPressureAltitudeError};
+use crate::utils::{feet_to_meter, round};
 
+#[derive(Debug)]
 struct TakeoffDistances {
     mass: Sorted<Vec<f64>>,
     takeoff_run: Sorted<Vec<f64>>,
     to_50_feet: Sorted<Vec<f64>>,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Engine {
     Rotax912Ul,
     Rotax912Uls,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum SurfaceCondition {
+    Dry,
+    Slush,
+    Snow,
+    PowderSnow,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct GrassSurface {
+    wet: bool,
+    soft_ground: bool,
+    damaged_turf: bool,
+    high_grass: bool,
+}
+
+#[derive(Debug, Snafu)]
+pub enum TakeoffCalculationError {
+    #[snafu(display("Mass {mass} kg is below the minimum available data ({min} kg)"))]
+    MassTooLow { min: f64, mass: f64 },
+
+    #[snafu(display("Mass {mass} kg is above the maximum available data ({max} kg)"))]
+    MassTooHigh { max: f64, mass: f64 },
+
+    #[snafu(display("The given pressure altitude is not defined by the ICAO standard atmosphere: {source}"))]
+    InvalidPressureAltitude { source: UndefinedPressureAltitudeError },
+}
+
+pub type TakeoffResult = Result<(f64, f64), TakeoffCalculationError>;
+
+/// # Takeoff Calculation for FK9 Mk VI
+/// Calculations are based on the approved Flight Manual as well as the FSM 3/75 "Einflüsse auf die Länge der Startstrecke".
 ///
+/// ## Arguments
 ///
-/// # Arguments
-///
-/// * `engine`: ROTAX 912 UL or ROTAX 912 ULS
-/// * `mass`: Mass in kg
+/// * `engine`:Engine of the aircraft one of ROTAX 912 UL or ROTAX 912 ULS
+/// * `mass`: Mass of the aircraft in kg
 /// * `pressure_altitude`: Pressure altitude in ft
-/// * `temperature`: Temperature deviation in °C from default temperature for the given pressure altitude
-/// * `slope`: Slope (positive or negative) in percent
-/// * `wet_surface`: Wet surface
-/// * `soft_surface`: Soft surface
-/// * `high_gras`: Gras higher than 3cm
+/// * `temperature`: Temperature on the runway in °C
+/// * `slope`: Slope (positive or negative) in percentage
+/// * `grass_surface`: If grass runway, its condition
+/// * `surface_condition`: Condition of the runway
 ///
-/// returns: Result<(f64, f64), TakeoffParameterError> Takeoff run, to 50 ft Height
+/// returns: Result<(f64, f64), TakeoffCalculationError> Takeoff run, to 50 ft Height
 ///
 /// # Examples
 ///
@@ -36,58 +68,45 @@ pub enum Engine {
 /// use aviation_calculator::fk9::*;
 /// use aviation_calculator::fk9::Engine::Rotax912Uls;
 ///
-/// let distances: (f64, f64) = calculate_start_distance(Rotax912Uls, 525.0, 100.0, 0.8, 0.0, true, false, false).unwrap();
+/// let distances: (f64, f64) = calculate_takeoff_distance(Rotax912Uls, 525.0, 100.0, 21.3, 0.0, None, SurfaceCondition::Dry).unwrap();
 /// ```
-pub fn calculate_start_distance(
+pub fn calculate_takeoff_distance(
     engine: Engine,
     mass: f64,
     pressure_altitude: f64,
     temperature: f64,
     slope: f64,
-    wet_surface: bool,
-    soft_surface: bool,
-    high_gras: bool,
-) -> Result<(f64, f64), TakeoffParameterError> {
+    grass_surface: Option<GrassSurface>,
+    surface_condition: SurfaceCondition,
+) -> TakeoffResult {
     let takeoff_table = takeoff_distances_by_engine(engine);
+    let min: f64 = takeoff_table.mass.first().unwrap();
 
-    if mass < takeoff_table.mass.first().unwrap() {
-        return Err(TakeoffParameterError(
-            "Mass is lower than the minimum available data".into(),
-        ));
+    if mass < min {
+        return Err(TakeoffCalculationError::MassTooLow { min, mass });
     }
 
-    if mass > takeoff_table.mass.last().unwrap() {
-        return Err(TakeoffParameterError(
-            "Mass is higher than the maximum available data".into(),
-        ));
+    let max: f64 = takeoff_table.mass.last().unwrap();
+
+    if mass > max {
+        return Err(TakeoffCalculationError::MassTooHigh { max, mass });
     }
 
-    return Ok((
-        round(
-            apply_corrections(
-                calculate_base_distance(mass, &takeoff_table.mass, &takeoff_table.takeoff_run),
-                pressure_altitude,
-                temperature,
-                slope,
-                wet_surface,
-                soft_surface,
-                high_gras,
-            )?,
-            2,
-        ),
-        round(
-            apply_corrections(
-                calculate_base_distance(mass, &takeoff_table.mass, &takeoff_table.to_50_feet),
-                pressure_altitude,
-                temperature,
-                slope,
-                wet_surface,
-                soft_surface,
-                high_gras,
-            )?,
-            2,
-        ),
-    ));
+    Ok((apply_corrections(
+        calculate_base_distance(mass, &takeoff_table.mass, &takeoff_table.takeoff_run),
+        pressure_altitude,
+        temperature,
+        slope,
+        grass_surface,
+        surface_condition,
+    )?, apply_corrections(
+        calculate_base_distance(mass, &takeoff_table.mass, &takeoff_table.to_50_feet),
+        pressure_altitude,
+        temperature,
+        slope,
+        grass_surface,
+        surface_condition,
+    )?))
 }
 
 fn takeoff_distances_by_engine(engine: Engine) -> TakeoffDistances {
@@ -115,7 +134,7 @@ fn calculate_base_distance(
     let min = distance_graph.gen(min_index).1;
     let max = distance_graph.gen(max_index).1;
 
-    lerp(min, max, factor)
+    lerp(min, max, factor) / 120.0 * 100.0
 }
 
 fn apply_corrections(
@@ -123,41 +142,43 @@ fn apply_corrections(
     pressure_altitude: f64,
     temperature: f64,
     slope: f64,
-    wet_surface: bool,
-    soft_surface: bool,
-    high_gras: bool,
-) -> Result<f64, TakeoffParameterError> {
-    takeoff_distance =
-        apply_environmental_corrections(takeoff_distance, pressure_altitude, temperature)?;
-    takeoff_distance = apply_surface_corrections(
-        takeoff_distance,
-        slope,
-        wet_surface,
-        soft_surface,
-        high_gras,
-    );
-
-    Ok(takeoff_distance)
-}
-
-fn apply_surface_corrections(
-    mut takeoff_distance: f64,
-    slope: f64,
-    wet_surface: bool,
-    soft_surface: bool,
-    high_gras: bool,
-) -> f64 {
+    grass_surface: Option<GrassSurface>,
+    surface_condition: SurfaceCondition,
+) -> Result<f64, TakeoffCalculationError> {
+    takeoff_distance = apply_environmental_corrections(takeoff_distance, pressure_altitude, temperature)?;
     takeoff_distance *= 1.0 + 0.1 * slope;
 
-    if wet_surface {
+    if grass_surface.is_some() {
+        takeoff_distance = apply_grass_surface_corrections(
+            takeoff_distance,
+            grass_surface.unwrap(),
+        );
+    }
+
+    Ok(round(match surface_condition {
+        SurfaceCondition::Dry => takeoff_distance,
+        SurfaceCondition::Slush => takeoff_distance * 1.3,
+        SurfaceCondition::Snow => takeoff_distance * 1.5,
+        SurfaceCondition::PowderSnow => takeoff_distance * 1.25,
+    }, 2))
+}
+
+fn apply_grass_surface_corrections(mut takeoff_distance: f64, grass_surface: GrassSurface) -> f64 {
+    takeoff_distance *= 1.2;
+
+    if grass_surface.wet {
         takeoff_distance *= 1.1;
     }
 
-    if soft_surface {
+    if grass_surface.soft_ground {
         takeoff_distance *= 1.5;
     }
 
-    if high_gras {
+    if grass_surface.damaged_turf {
+        takeoff_distance *= 1.1;
+    }
+
+    if grass_surface.high_grass {
         takeoff_distance *= 1.2;
     }
 
@@ -165,36 +186,34 @@ fn apply_surface_corrections(
 }
 
 fn apply_environmental_corrections(
-    mut takeoff_distance: f64,
+    takeoff_distance: f64,
     pressure_altitude: f64,
     temperature: f64,
-) -> Result<f64, TakeoffParameterError> {
-    if pressure_altitude < 0.0 {
-        return Err(TakeoffParameterError(
-            "Pressure altitude must be greater than zero".into(),
-        ));
-    }
+) -> Result<f64, TakeoffCalculationError> {
+    let distance = apply_pressure_altitude_correction(takeoff_distance, pressure_altitude);
+    let temperature_deviation = calculate_temperature_deviation_for_correction(pressure_altitude, temperature)?;
 
-    takeoff_distance *= 1.0 + 0.1 * (pressure_altitude / 1000.0);
-    takeoff_distance *= 1.0 + 0.01 * temperature;
-
-    Ok(takeoff_distance)
+    Ok(apply_temperature_correction(distance, temperature_deviation))
 }
 
-fn round(x: f64, decimals: u8) -> f64 {
-    let y = 10_i32.pow(decimals.into()) as f64;
-    (x * y).round() / y
+fn calculate_temperature_deviation_for_correction(pressure_altitude: f64, temperature: f64) -> Result<f64, TakeoffCalculationError> {
+    Ok(calculate_temperature_deviation(feet_to_meter(pressure_altitude), temperature.max(0.0)).context(InvalidPressureAltitudeSnafu)?)
 }
 
-#[derive(Debug, Clone)]
-pub struct TakeoffParameterError(String);
+fn apply_pressure_altitude_correction(takeoff_distance: f64, pressure_altitude: f64) -> f64 {
+    let multiplier = if pressure_altitude > 3000.0 {
+        0.18
+    } else if pressure_altitude > 1000.0 {
+        0.13
+    } else {
+        0.10
+    };
 
-impl Error for TakeoffParameterError {}
+    takeoff_distance * (1.0 + multiplier * (pressure_altitude / 1000.0)).max(1.0)
+}
 
-impl fmt::Display for TakeoffParameterError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
+fn apply_temperature_correction(takeoff_distance: f64, temperature_deviation: f64) -> f64 {
+    takeoff_distance * (1.0 + 0.01 * temperature_deviation)
 }
 
 #[cfg(test)]
@@ -203,210 +222,255 @@ mod tests {
 
     #[test]
     fn uls_472_weight_too_low() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             472.0,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert!(result.is_err());
+        assert_eq!("Mass 472 kg is below the minimum available data (472.5 kg)", result.unwrap_err().to_string());
     }
 
     #[test]
     fn uls_472_weight_too_high() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             600.1,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert!(result.is_err());
+        assert_eq!("Mass 600.1 kg is above the maximum available data (600 kg)", result.unwrap_err().to_string());
+    }
+
+    #[test]
+    fn uls_472_pressure_altitude_too_low() {
+        let result = calculate_takeoff_distance(
+            Engine::Rotax912Uls,
+            520.0,
+            -5000.0,
+            15.0,
+            0.0,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
+        );
+        assert!(result.is_err());
+        assert_eq!("The given pressure altitude is not defined by the ICAO standard atmosphere: The pressure altitude -1524 m is below the minimum defined (-1000 m) in the ICAO Standard Atmosphere", result.unwrap_err().to_string());
     }
 
     #[test]
     fn uls_472_negative_pressure_altitude() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             472.5,
-            -0.1,
+            -0.5,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn uls_472() {
-        let result = calculate_start_distance(
-            Engine::Rotax912Uls,
-            472.5,
-            0.0,
-            0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (100.0, 225.0));
     }
 
     #[test]
+    fn uls_472() {
+        let result = calculate_takeoff_distance(
+            Engine::Rotax912Uls,
+            472.5,
+            0.0,
+            15.0,
+            0.0,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
+        );
+        assert_eq!(result.unwrap(), (100.0, 225.0));
+    }
+
+    #[test]
+    fn uls_472_slush() {
+        let result = calculate_takeoff_distance(
+            Engine::Rotax912Uls,
+            472.5,
+            0.0,
+            15.0,
+            0.0,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Slush,
+        );
+        assert_eq!(result.unwrap(), (130.0, 292.5));
+    }
+
+    #[test]
+    fn uls_472_snow() {
+        let result = calculate_takeoff_distance(
+            Engine::Rotax912Uls,
+            472.5,
+            0.0,
+            15.0,
+            0.0,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Snow,
+        );
+        assert_eq!(result.unwrap(), (150.0, 337.5));
+    }
+
+    #[test]
+    fn uls_472_powder_snow() {
+        let result = calculate_takeoff_distance(
+            Engine::Rotax912Uls,
+            472.5,
+            0.0,
+            15.0,
+            0.0,
+            Some(GrassSurface::default()),
+            SurfaceCondition::PowderSnow,
+        );
+        assert_eq!(result.unwrap(), (125.0, 281.25));
+    }
+
+    #[test]
     fn ul_472() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Ul,
             472.5,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (106.0, 265.0));
     }
 
     #[test]
     fn uls_472_temp() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             472.5,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (100.0, 225.0));
     }
 
     #[test]
     fn uls_472_pressure() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             472.5,
             3000.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
-        assert_eq!(result.unwrap(), (130.0, 292.5));
+        assert_eq!(result.unwrap(), (147.26, 331.33));
     }
 
     #[test]
     fn uls_472_pressure2() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             472.5,
             3200.5,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
-        assert_eq!(result.unwrap(), (132.01, 297.01));
+        assert_eq!(result.unwrap(), (167.6, 377.1));
     }
 
     #[test]
     fn uls_525() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             525.0,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (128.0, 320.0));
     }
 
     #[test]
     fn uls_525_temp() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             525.0,
             0.0,
             3.0,
             0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
-        assert_eq!(result.unwrap(), (131.84, 329.6));
+        assert_eq!(result.unwrap(), (112.64, 281.6));
     }
 
     #[test]
     fn uls_525_slope() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             525.0,
             0.0,
-            0.0,
+            15.0,
             -2.2,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (99.84, 249.6));
     }
 
     #[test]
     fn uls_550() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             550.0,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (137.67, 342.67));
     }
 
     #[test]
     fn uls_600() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             600.0,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            false,
-            false,
-            false,
+            Some(GrassSurface::default()),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (153.0, 375.0));
     }
 
     #[test]
     fn uls_600_wet() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             600.0,
             0.0,
+            15.0,
             0.0,
-            0.0,
-            true,
-            false,
-            false,
+            Some(GrassSurface { wet: true, ..GrassSurface::default() }),
+            SurfaceCondition::Dry,
         );
         assert_eq!(result.unwrap(), (168.3, 412.5));
     }
@@ -414,22 +478,110 @@ mod tests {
     #[test]
     fn uls_600_wet_and_soft() {
         let result =
-            calculate_start_distance(Engine::Rotax912Uls, 600.0, 0.0, 0.0, 0.0, true, true, false);
+            calculate_takeoff_distance(Engine::Rotax912Uls, 600.0, 0.0, 15.0, 0.0, Some(GrassSurface { wet: true, soft_ground: true, damaged_turf: false, high_grass: false }), SurfaceCondition::Dry);
         assert_eq!(result.unwrap(), (252.45, 618.75));
     }
 
     #[test]
     fn uls_600_combined() {
-        let result = calculate_start_distance(
+        let result = calculate_takeoff_distance(
             Engine::Rotax912Uls,
             600.0,
             2000.5,
             -2.0,
             3.0,
-            true,
-            true,
-            true,
+            Some(GrassSurface { wet: true, soft_ground: true, damaged_turf: true, high_grass: true }),
+            SurfaceCondition::Dry,
         );
-        assert_eq!(result.unwrap(), (463.15, 1135.18));
+        assert_eq!(result.unwrap(), (485.6, 1190.2));
+    }
+
+    #[test]
+    fn fsm75_3_example1() {
+        let result = apply_corrections(316.0, 600.0, -3.0, 0.0, None, SurfaceCondition::Snow);
+        assert_eq!(result.unwrap(), 433.05); // 444
+    }
+
+    #[test]
+    fn fsm75_3_example2() {
+        let result = apply_corrections(465.0, 2000.0, 1.0, 0.0, Some(GrassSurface {
+            wet: true,
+            soft_ground: false,
+            damaged_turf: false,
+            high_grass: false,
+        }), SurfaceCondition::Slush);
+        assert_eq!(result.unwrap(), 904.46); // 904
+    }
+
+    #[test]
+    fn fsm75_3_example3() {
+        let result = apply_corrections(465.0, 1150.0, 35.0, 0.0, None, SurfaceCondition::Dry);
+        assert_eq!(result.unwrap(), 653.61); // 653
+    }
+
+    #[test]
+    fn fsm75_3_example4() {
+        let result = apply_corrections(465.0, 600.0, 28.0, 0.0, Some(GrassSurface {
+            wet: true,
+            soft_ground: false,
+            damaged_turf: false,
+            high_grass: false,
+        }), SurfaceCondition::Slush);
+        assert_eq!(result.unwrap(), 965.84); // 1002
+    }
+
+    #[test]
+    fn pressure_altitude() {
+        let result = apply_pressure_altitude_correction(465.0, 2000.0);
+        assert_eq!(result, 585.9);
+    }
+
+    #[test]
+    fn temperature_deviation_below_zero() {
+        let result1 = calculate_temperature_deviation_for_correction(200.0, -3.0);
+        let result2 = calculate_temperature_deviation_for_correction(200.0, 0.0);
+        assert_eq!(result1.unwrap(), result2.unwrap());
+    }
+
+    #[test]
+    fn temperature_deviation_fsm_75_3_example1() {
+        let result = calculate_temperature_deviation_for_correction(600.0, -3.0);
+        assert_eq!(result.unwrap(), -13.81, "Temperature deviation does not comply with example 1 of FSM 3/75, expected to be ~-14°C");
+    }
+
+    #[test]
+    fn temperature_deviation_fsm_75_3_example2() {
+        let result = calculate_temperature_deviation_for_correction(2000.0, 1.0);
+        assert_eq!(result.unwrap(), -10.04, "Temperature deviation does not comply with example 2 of FSM 3/75, expected to be ~-10°C");
+    }
+
+    #[test]
+    fn temperature_deviation_fsm_75_3_example3() {
+        let result = calculate_temperature_deviation_for_correction(1150.0, 35.0);
+        assert_eq!(result.unwrap(), 22.28, "Temperature deviation does not comply with example 3 of FSM 3/75, expected to be ~22°C");
+    }
+
+    #[test]
+    fn temperature_deviation_fsm_75_3_example4() {
+        let result = calculate_temperature_deviation_for_correction(600.0, 28.0);
+        assert_eq!(result.unwrap(), 14.19, "Temperature deviation does not comply with example 4 of FSM 3/75, expected to be ~14°C");
+    }
+
+    #[test]
+    fn apply_temperature_correction_negative() {
+        let result = apply_temperature_correction(120.0, -10.0);
+        assert_eq!(result, 108.0);
+    }
+
+    #[test]
+    fn apply_temperature_correction_neutral() {
+        let result = apply_temperature_correction(120.0, 0.0);
+        assert_eq!(result, 120.0);
+    }
+
+    #[test]
+    fn apply_temperature_correction_positive() {
+        let result = apply_temperature_correction(120.0, 10.0);
+        assert_eq!(result, 132.0);
     }
 }
