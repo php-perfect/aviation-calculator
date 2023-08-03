@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+* Set sensible maximum and minimum border for temperature and slope
+
 ## 0.2.1
 
 * Make GrassSurface properties public
